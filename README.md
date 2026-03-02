@@ -105,12 +105,12 @@ Axis 2 — Autonomy Level (Decision Authority)
 
 L0–L4
 
-Level	Meaning
-L0	Recommendation only
-L1	Human approval required
-L2	Rule-based execution
-L3	Execute unless anomaly
-L4	Near-full autonomy
+	Level		Meaning
+	L0		Recommendation only
+	L1		Human approval required
+	L2		Rule-based execution
+	L3		Execute unless anomaly
+	L4		Near-full autonomy
 
 Autonomy is not static. It is computed per incident.
 
