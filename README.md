@@ -32,7 +32,51 @@ This project is built as part of a structured learning journey focused on produc
 
 🏗 **Architecture**
 
-The system is built around five governance axes:
+System Readiness (Execution Mode) controls whether side effects are allowed.
+Policy Resolution computes effective autonomy per incident.
+Action Readiness validates whether execution is safe right now.
+Escalation represents authority boundary crossing — not alerting.
+
+				                           ┌─────────────────────────────┐
+				                           │  Incident / Signal Ingest   │
+				                           │  (alerts, logs, metrics)    │
+				                           └───────────────┬─────────────┘
+				                                           │
+				                                           ▼
+				                           ┌─────────────────────────────┐
+				                           │  Suggestion Layer           │
+				                           │  (LLM + deterministic rules)│
+				                           └───────────────┬─────────────┘
+				                                           │
+				                                           ▼
+				                    ┌────────────────────────────────────────────┐
+				                    │            Governance Control Plane        │
+				                    │                                            │
+				                    │  1. System Readiness → Mode                │
+				                    │     OFF | SHADOW | LIVE                    │
+				                    │                                            │
+				                    │  2. Policy Resolution → Effective Autonomy │
+				                    │     L0–L4 + Escalation Floor               │
+				                    │                                            │
+				                    │  3. Action Readiness → Execution Safety    │
+				                    │     rollback • idempotency • tool health   │
+				                    └───────────────────┬────────────────────────┘
+				                                        │
+				                                        ▼
+				                         ┌───────────────────────────┐
+				                         │ Escalation Router         │
+				                         │ NONE | APPROVAL | HANDOFF │
+				                         └───────────────┬───────────┘
+				                                         │
+				                  ┌──────────────────────┼──────────────────────┐
+				                  │                      │                      │
+				                  ▼                      ▼                      ▼
+				           ┌────────────┐        ┌───────────────┐      ┌────────────┐
+				           │ Execute    │        │ Human Approval│      │ Human Owns │
+				           │ (LIVE only)│        │ Required      │      │ Incident   │
+				           └────────────┘        └───────────────┘      └────────────┘
+**The system is built around five governance axes:**
+
 
 ⸻
 
