@@ -1,8 +1,8 @@
 import re
+import os
 from typing import Any
 
 from self_healing_agent.agent.state import AgentState
-
 
 FQDN_REGEX = re.compile(r"^(?=.{1,253}$)(?!-)(?:[A-Za-z0-9-]{1,63}(?<!-)\.)+[A-Za-z]{2,63}\.?$")
 
@@ -26,8 +26,8 @@ def _extract_between(text: str, start_key: str, end_key: str | None = None) -> s
     return text[start_idx:end_idx].strip()
 
 
-def _extract_derived_host(instance_tail: str) -> str:
-    text = instance_tail.strip()
+def _extract_derived_host(instances: str) -> str:
+    text = instances.strip()
     host_patterns = [
         r"\b(at host|host:|host)\s+([A-Za-z0-9._-]+)",
     ]
@@ -35,10 +35,16 @@ def _extract_derived_host(instance_tail: str) -> str:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             return match.group(2).strip().rstrip(".,;:")
+
+    if ":" in text:
+        first_part = text.split(":", 1)[0].strip().rstrip(".,;:")
+        looks_host_like = any(ch.isdigit() for ch in first_part) or "." in first_part or "-" in first_part
+        if first_part and looks_host_like and re.match(r"^[A-Za-z0-9._-]+$", first_part):
+            return first_part
     return ""
 
 
-def _extract_metrics(text: str) -> str:
+def _extract_metrics(text: str) -> list[str]:
     match = re.search(r"MetricName:\s*(.*?)\s*,\s*Application:", text)
     if not match:
         return []
@@ -123,14 +129,16 @@ def _derive_reason_from_instance_tail(instance_tail: str, metric_name_hint: str|
     warnings.append("REASON_DERIVATION_FALLBACK_RAW_INSTANCE")
     return raw_tail, warnings
 
-def _parse_common_fileds(text: str) -> dict[str, Any]:
+def _parse_common_fields(text: str) -> dict[str, Any]:
     warnings: list[str] = []
     service_domain = _extract_between(text, "System:", ",")
     if not service_domain: 
         warnings.append("MISSING_SERVICE_DOMAIN")
     datacenter = _extract_between(text, "DC:", ",")
-    if not datacenter: 
+    if not datacenter and not datacenter.strip(): 
         warnings.append("MISSING_DATACENTER")
+    else:
+        datacenter = datacenter.upper().replace("-", "").replace("_", "").strip()
     metric_names = _extract_metrics(text)
     if not metric_names:
         warnings.append("MISSING_METRIC_NAME")
@@ -138,15 +146,18 @@ def _parse_common_fileds(text: str) -> dict[str, Any]:
     if not app_name:
         app_name = _extract_between(text, "Application:").strip()
     
+    env = os.getenv("SHA_ENV", "DEV").upper()
     return (
+        env,
         service_domain,
         datacenter,
         metric_names,
         app_name,
-        warnings)
+        warnings,
+    )
 
 def _parse_infra_host(text: str) -> dict[str, Any]:
-    service_domain, datacenter, metric_names, app_name, warnings = _parse_common_fileds(text)
+    env, service_domain, datacenter, metric_names, app_name, warnings = _parse_common_fields(text)
     app_name = _extract_infra_app_name(text)
     if not app_name:
         warnings.append("MISSING_APP_NAME")
@@ -157,6 +168,8 @@ def _parse_infra_host(text: str) -> dict[str, Any]:
         warnings.append("HOST_NOT_FQDN")
     
     instance_tail = _extract_between(text, "Instance:").strip()
+
+    instances: list[str] = []
     if instance_tail:
         if "has " in instance_tail:
             instances = [instance_tail.strip()[0:instance_tail.strip().find(" has ")]]
@@ -180,44 +193,27 @@ def _parse_infra_host(text: str) -> dict[str, Any]:
     if re.match(r"^[A-Za-z0-9._-]+$", candidate):
         instance_hosts = [candidate]        
     return {
-        "incident_type": "infra_host",
-        "service_domain": service_domain,
-        "datacenter": datacenter,
-        "metric_name": metric_names,
-        "app_name": app_name,
-        "host": host,
-        "instances": instances if instances else [],
-        "instance_host": instance_hosts,
-        "reason": reason or None,
-        "warnings": warnings,
+        'structured_input': {
+            "incident_type": "infra_host",
+            'env': env,  # Default to PROD - will be updated in the future based on additional parsing if needed
+            "service_domain": service_domain,
+            "datacenter": datacenter,
+            "metric_name": metric_names,
+            "app_name": app_name,
+            "host": host,
+            "instances": instances if instances else [],
+            "instance_host": instance_hosts,
+            "reason": reason,
+        },
+        'warnings': warnings,
+        'trace': ['parse_raw_incident_text:warning'] if warnings else ['parse_raw_incident_text:ok'],
+        'error_flag': False,
+        'error_message': None
     }
 
-def _parse_system_instance(text: str) -> dict[str, Any]:
-    service_domain, datacenter, metric_names, app_name, warnings = _parse_common_fileds(text)
-    reason = _extract_between(text, "Reason:", "System:")
-    reason = reason.strip(" ,")
-    if not reason:
-        warnings.append("MISSING_REASON")
-
-    host = _extract_between(text, "Host:")
-    if not bool(FQDN_REGEX.fullmatch(host)):
-        warnings.append("HOST_NOT_FQDN")
-
-    return {
-        "incident_type": "system_instance",
-        "service_domain": service_domain,
-        "datacenter": datacenter,
-        "metric_name": metric_names,
-        "app_name": app_name,
-        "host": host,
-        "instances": [],
-        "instance_host": [],
-        "reason": reason,
-        "warnings": warnings
-    }
 
 def _parse_service_instance(text: str) -> dict[str, Any]:
-    service_domain, datacenter, metric_names, app_name, warnings = _parse_common_fileds(text)
+    env, service_domain, datacenter, metric_names, app_name, warnings = _parse_common_fields(text)
     reason = _extract_between(text, "Reason:", "System:")
     reason = reason.strip(" ,")
     if not reason:
@@ -227,60 +223,109 @@ def _parse_service_instance(text: str) -> dict[str, Any]:
     instance_host = _extract_derived_host(instances)
 
     return {
-        "parsed_incident": {
-            "incident_type": "service_instance",
+        'structured_input': {
+            'incident_type': "service_instance",
+            'env': env, 
+            'service_domain': service_domain,
+            'datacenter': datacenter,
+            'metric_name': metric_names,
+            'app_name': app_name,
+            'host': None,
+            'instances': [instances] if instances else [],
+            'instance_host': [instance_host] if instance_host else [],
+            'reason': reason,
+        },
+        'warnings': warnings,
+        'trace': ['parse_raw_incident_text:warning'] if warnings else ['parse_raw_incident_text:ok'],
+        'error_flag': False,
+        'error_message': None
+    }   
+
+
+def _parse_system_instance(text: str) -> dict[str, Any]:
+    env, service_domain, datacenter, metric_names, app_name, warnings = _parse_common_fieleds(text)
+    reason = _extract_between(text, "Reason:", "System:")
+    reason = reason.strip(" ,")
+    if not reason:
+        warnings.append("MISSING_REASON")
+
+    host = _extract_between(text, "Host:")
+    if not host:
+        warnings.append("MISSING_HOST")
+    elif not bool(FQDN_REGEX.fullmatch(host)):
+        warnings.append("HOST_NOT_FQDN")
+
+    return {
+        'structured_input': {
+            'incident_type': "system_instance",
+            'env': env,  # Default to PROD - will be updated in the future based on additional parsing if needed
+            "service_domain": service_domain,
+            "datacenter": datacenter,
+            "metric_name": metric_names,
+            "app_name": app_name,
+            "host": host,
+            "instances": [],
+            "instance_host": [],
+            "reason": reason,
+        },
+        'warnings': warnings,
+        'trace': ['parse_raw_incident_text:warning'] if warnings else ['parse_raw_incident_text:ok'],
+        'error_flag': False,
+        'error_message': None
+    }
+
+ 
+def _parse_service_dc(text: str) -> dict[str, Any]:
+    env, service_domain, datacenter, metric_names, app_name, warnings = _parse_common_fields(text)
+    reason = _extract_between(text, "Reason:", "System:")
+    reason = reason.strip(" ,")
+    if not reason:
+        warnings.append("MISSING_REASON")
+    
+    return {
+        'structured_input': {
+        "incident_type": "service_dc",
+        'env': env,
+        "service_domain": service_domain,
+        "datacenter": datacenter,
+        "metric_name": metric_names,
+        "app_name": app_name,
+        "host": None,
+        "instances": [],
+        "instance_host": [],
+        "reason": reason,
+        },
+        'warnings': warnings,
+        'trace': ['parse_raw_incident_text:warning'] if warnings else ['parse_raw_incident_text:ok'],
+        'error_flag': False,
+        'error_message': None
+    }
+
+
+def _parse_system_dc(text: str) -> dict[str, Any]:
+    env, service_domain, datacenter, metric_names, app_name, warnings = _parse_common_fields(text)
+    reason = _extract_between(text, "Reason:", "System:")
+    reason = reason.strip(" ,")
+    if not reason:
+        warnings.append("MISSING_REASON")
+    
+    return {
+        'structured_input': {
+            "incident_type": "system_dc",
+            'env': env,
             "service_domain": service_domain,
             "datacenter": datacenter,
             "metric_name": metric_names,
             "app_name": app_name,
             "host": None,
-            "instances": instances,
-            "instance_host": [instance_host] if instance_host else [],
+            "instances": [],
+            "instance_host": [],
             "reason": reason,
         },
-        "warnings": warnings
-    }
-
-
-def _parse_system_dc(text: str) -> dict[str, Any]:
-    service_domain, datacenter, metric_names, app_name, warnings = _parse_common_fileds(text)
-    reason = _extract_between(text, "Reason:", "System:")
-    reason = reason.strip(" ,")
-    if not reason:
-        warnings.append("MISSING_REASON")
-    
-    return {
-        "incident_type": "system_dc",
-        "service_domain": service_domain,
-        "datacenter": datacenter,
-        "metric_name": metric_names,
-        "app_name": app_name,
-        "host": None,
-        "instances": [],
-        "instance_host": [],
-        "reason": reason,
-        "warnings": warnings
-    }
-
-
-def _parse_service_dc(text: str) -> dict[str, Any]:
-    service_domain, datacenter, metric_names, app_name, warnings = _parse_common_fileds(text)
-    reason = _extract_between(text, "Reason:", "System:")
-    reason = reason.strip(" ,")
-    if not reason:
-        warnings.append("MISSING_REASON")
-    
-    return {
-        "incident_type": "service_dc",
-        "service_domain": service_domain,
-        "datacenter": datacenter,
-        "metric_name": metric_names,
-        "app_name": app_name,
-        "host": None,
-        "instances": [],
-        "instance_host": [],
-        "reason": reason,
-        "warnings": warnings
+        'warnings': warnings,
+        'trace': ['parse_raw_incident_text:warning'] if warnings else ['parse_raw_incident_text:ok'],
+        'error_flag': False,
+        'error_message': None
     }
 
 
@@ -289,25 +334,35 @@ def parse_raw_incident_details(state: AgentState) -> dict[str, Any]:
     if text:
         if text.startswith("System:"):
             return _parse_infra_host(text)
-        elif text.startswith("Reason:"):
-            if "Host:" in text and text.split(',')[-1].strip().startswith("Host:"):
+
+        if text.startswith("Reason:"):
+            has_host = "Host:" in text
+            has_instance = "Instance:" in text
+
+            if has_host and not has_instance:
                 return _parse_system_instance(text)
-            elif "Instance:" in text and text.split(',')[-1].strip().startswith("Instance:"):
+            if has_instance:
                 return _parse_service_instance(text)
-            else:
-                metric_names = _extract_metrics(text)
-                if _is_system_metric(metric_names):
-                    return _parse_system_dc(text)
-                else:
-                    return _parse_service_dc(text)
+
+            metric_names = _extract_metrics(text)
+            if _is_system_metric(metric_names):
+                return _parse_system_dc(text)
+            return _parse_service_dc(text)
 
     return {
-        "incident_type": None,
-        "service_domain": None,
-        "datacenter": None,
-        "metric_name": [],
-        "app_name": None,
-        "host": None,
-        "instances": [],
-        "reason": None,
+        'structured_input': {
+            "incident_type": None,
+            "env": None,
+            "service_domain": None,
+            "datacenter": None,
+            "metric_name": [],
+            "app_name": None,
+            "host": None,
+            "instances": [],
+            "reason": None,
+        },
+        'warnings': ["UNRECOGNIZED_INPUTTEXT_FORMAT"],
+        'trace': ['parse_raw_incident_text:warning'],
+        'error_flag': True,
+        'error_message': "Unrecognized input text format"
     }

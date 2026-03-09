@@ -1,0 +1,88 @@
+config_version: 1.0.0
+
+env_variables:
+  SHA_ENV: DEV
+  EMAILS: pradipta26@gmail.com
+
+validation_schema:
+  schema_version: 1.0.0
+  description: Validation contract for parsed structured_input payloads.
+
+  common_fields:
+    required:
+      - incident_type
+      - env
+      - service_domain
+      - datacenter
+      - metric_name
+      - app_name
+      - reason
+    properties:
+      incident_type:
+        type: string
+        enum: [infra_host, service_instance, system_instance, service_dc, system_dc]
+      env:
+        type: string
+        enum: [DEV, STAGING, CANARY, PROD]
+      service_domain:
+        type: string
+      datacenter:
+        type: string
+        enum: [AWSE, AWSW, TDC, SDC, TPA, AZUREE, AZUREW]
+      metric_name:
+        type: array[string]
+      app_name:
+        type: string
+      reason:
+        type: string
+
+  by_incident_type:
+    infra_host:
+      required: [host, instances]
+      properties:
+        host:
+          type: string
+        instances:
+          type: array[string]
+        instance_host:
+          type: array[string]
+
+    service_instance:
+      required: [instances]
+      properties:
+        host:
+          type: null
+        instances:
+          type: array[string]
+        instance_host:
+          type: array[string]
+
+    system_instance:
+      required: [host]
+      properties:
+        host:
+          type: string
+        instances:
+          type: array[string]
+        instance_host:
+          type: array[string]
+
+    service_dc:
+      required: []
+      properties:
+        host:
+          type: null
+        instances:
+          type: array[string]
+        instance_host:
+          type: array[string]
+
+    system_dc:
+      required: []
+      properties:
+        host:
+          type: null
+        instances:
+          type: array[string]
+        instance_host:
+          type: array[string]

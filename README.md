@@ -16,7 +16,9 @@ The goal of this project is not to build a “clever bot,” but to design a tru
 	•	Every decision is auditable.
 	•	Humans remain in control.
 
-This project is built as part of a structured learning journey focused on production-grade AI systems, not demo-grade agents.
+This repository demonstrates a production-style self-healing SRE agent.
+
+The system was originally inspired by enterprise incident management workflows, but all datasets included here are synthetic and generated for demonstration purposes only.
 
 ⸻
 

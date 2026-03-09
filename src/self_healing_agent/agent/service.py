@@ -1,29 +1,38 @@
-import re
+# self_healing_agent/src/self_healing_agent/agent/service.py
 import json
 from typing import Any
+import uuid
+from datetime import datetime, timezone
 
 from self_healing_agent.agent.graph import build_graph
 from self_healing_agent.core.models import IncidentPayload
 from self_healing_agent.agent.state import AgentState
 
 def run_incident(payload: IncidentPayload) -> dict[str, Any]:
-    state = AgentState()
-    state['incident_raw'] = payload.incident_details
+    state: AgentState = {
+        "trace_id": str(uuid.uuid4()),
+        "incident_id": str(uuid.uuid4()),
+        "incident_raw": payload.incident_details,
+        "warnings": [],
+        "trace": [],
+        "error_flag": False,
+        "error_message": None,
+        "event_ids": [],
+        "autonomy_mode": "SHADOW",
+        "kill_switch_state": "DISABLED",
+        "timestamp_utc": datetime.now(timezone.utc).isoformat()
+    }
     graph = build_graph()
     response = graph.invoke(state)
-    
-    return {
-        "status": "processed",
-        "response": response,
-    }
+    return response
 
 
 def _quick_test_main() -> None:
     samples = [
-        (
-            "Host Infra",
-            """System: GTV , DC: AWS-W , MetricName: Server CPU % , Application: GTV-ONE SEARCH-INFRA for host: 143-251-36-229.vpc.verizon.com , Instance: 143-251-36-229.vpc.verizon.com has Server CPU % >= 99.0"""
-        ),
+        # (
+        #     "Host Infra",
+        #     """System: GTV , DC: AWS-W , MetricName: Server CPU % , Application: GTV-ONE SEARCH-INFRA for host: 143-251-36-229.vpc.verizon.com , Instance: 143-251-36-229.vpc.verizon.com has Server CPU % >= 99.0"""
+        # ),
         # (
         #     "Host Infra",
         #     "System: DAGV , DC: AWS-W , MetricName: jvm mismatch , Application: DAGV-DAGV-JVM-STATUS for host: AWS-W MCS PNO-DAGV JVM Status Mismatch, 6 missing, 2 extra DAGV-BATCH-CASSANDRAREALTIME-PRD-AW2:DAGV-BATCH-CASSANDRAREALTIME-PRD-AW2 = missing, WLS-DAGV-CXPNOB2-AW2:144-70-44-235.vpc.verizon.com:CXP_PNO_B2C:Server1:13001 = missing, WLS-DAGV-CXPNOB2-AW2:144-70-46-194.vpc.verizon.com:CXP_PNO_B2C:Server3:13003 = missing, WLS-DAGV-CXPNOB2-AW2:144-70-87-170.vpc.verizon.com:DVS_PNO_B2C:Server3:13003 = missing, Instance: Reference List: AWS-West.PNO_JVMList has jvm mismatch >= 0.0",
@@ -32,10 +41,10 @@ def _quick_test_main() -> None:
         #     "Host Infra",
         #     """System: BSUV , DC: TDC , MetricName: /log usage , Application: BSUV-SCMDATA-INFRA for host: tdclpbsuva010.verizon.com , Instance: tdclpbsuva010.verizon.com:/log has /log usage >= 96.0"""
         # ),
-        # (
-        #     "Host Infra",
-        #     "System: B6VV , DC: SDC , MetricName: /var/adm/WebSphere usage , Application: B6VV-DVS-INFRA for host: saclpb6vva511.sdc.vzwcorp.com , Instance: saclpb6vva511.sdc.vzwcorp.com:/var/adm/WebSphere has /var/adm/WebSphere usage >= 92.0",
-        # ),
+        (
+            "Host Infra",
+            "System: B6VV , DC: SDC , MetricName: /var/adm/WebSphere usage , Application: B6VV-DVS-INFRA for host: saclpb6vva511.sdc.vzwcorp.com , Instance: saclpb6vva511.sdc.vzwcorp.com:/var/adm/WebSphere has /var/adm/WebSphere usage >= 92.0",
+        ),
         # (
         #     "Service DC",
         #     "Reason: 300% more traffic is observed compared to past window average traffic - 8188.0 System: BVHV, DC: SDC, MetricName: Traffic, Application: BVHV-SAFEGUARD-SSOIGSTREAMPROCESSING"
@@ -87,9 +96,10 @@ def _quick_test_main() -> None:
 
     for idx, (label, details) in enumerate(samples, start=1):
         payload = IncidentPayload(incident_details=details)
-        result = run_incident(payload)
+        state: AgentState = run_incident(payload)
+        print(f"state keys: {list(state.keys())}")
         print(f"\n[{idx}] {label}")
-        print(json.dumps(result, indent=2))
+        print(json.dumps(state, indent=2))
 
 
 if __name__ == "__main__":
