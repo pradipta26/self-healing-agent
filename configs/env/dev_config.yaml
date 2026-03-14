@@ -14,13 +14,13 @@ validation_schema:
       - env
       - service_domain
       - datacenter
-      - metric_name
+      - metric_names
       - app_name
       - reason
     properties:
       incident_type:
         type: string
-        enum: [infra_host, service_instance, system_instance, service_dc, system_dc]
+        enum: [Host Infrastructure, Service Instance, System Instance, Service DC, System DC]
       env:
         type: string
         enum: [DEV, STAGING, CANARY, PROD]
@@ -28,8 +28,8 @@ validation_schema:
         type: string
       datacenter:
         type: string
-        enum: [AWSE, AWSW, TDC, SDC, TPA, AZUREE, AZUREW]
-      metric_name:
+        enum: [AWSE, AWSW, AZUREE, AZUREW, GCE, GCW, BDC, ADC, CDC]
+      metric_names:
         type: array[string]
       app_name:
         type: string
@@ -37,52 +37,52 @@ validation_schema:
         type: string
 
   by_incident_type:
-    infra_host:
-      required: [host, instances]
+    Host Infrastructure:
+      required: [hosts, instances]
       properties:
-        host:
-          type: string
+        hosts:
+          type: array[string]
         instances:
           type: array[string]
-        instance_host:
+        instance_hosts:
           type: array[string]
 
-    service_instance:
+    Service Instance:
       required: [instances]
       properties:
-        host:
-          type: null
+        hosts:
+          type: array[string]
         instances:
           type: array[string]
-        instance_host:
+        instance_hosts:
           type: array[string]
 
-    system_instance:
-      required: [host]
+    System Instance:
+      required: [hosts]
       properties:
-        host:
-          type: string
+        hosts:
+          type: array[string]
         instances:
           type: array[string]
-        instance_host:
+        instance_hosts:
           type: array[string]
 
-    service_dc:
+    Service DC:
       required: []
       properties:
-        host:
-          type: null
+        hosts:
+          type: array[string]
         instances:
           type: array[string]
-        instance_host:
+        instance_hosts:
           type: array[string]
 
-    system_dc:
+    System DC:
       required: []
       properties:
-        host:
-          type: null
+        hosts:
+          type: array[string]
         instances:
           type: array[string]
-        instance_host:
+        instance_hosts:
           type: array[string]

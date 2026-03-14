@@ -44,6 +44,9 @@ dependencies = [
   # Reliability primitives
   "tenacity>=9.0.0",
 
+  # Database
+  "psycopg2-binary>=2.9.0",
+
   # Observability / logging
   "structlog>=24.4.0",
   "rich>=13.8.0",

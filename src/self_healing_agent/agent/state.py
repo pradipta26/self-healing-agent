@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 # -----------------------------
 # Core enums (existing)
 # -----------------------------
+ENVIRONMENT = Literal["PROD", "CANARY", "STAGING", "DEV"]
+INCIDENT_TYPE = Literal[ "Host Infrastructure", "Service DC", "Service Instance", "System DC", "System Instance" ]
 Category = Literal["CPU", "MEMORY", "NETWORK", "UNKNOWN"]
 Confidence = Literal["HIGH", "MEDIUM", "LOW", "UNKNOWN"]
 Actionability = Literal[
@@ -51,7 +53,7 @@ TriggerCode = Literal[
     "EVIDENCE_EMPTY",
     "EVIDENCE_ID_OUT_OF_RANGE",
     "EVIDENCE_ID_TOO_MANY",
-    "EVIDENCE_IDS_NOT_A_list",
+    "EVIDENCE_IDS_NOT_A_LIST",
     "SERVICE_MISMATCH",
     "CONFIDENCE_TOO_HIGH_FOR_WEAK_EVIDENCE",
     "MODEL_OUTPUT_SCHEMA_VIOLATION",
@@ -263,11 +265,11 @@ class DecisionLog(TypedDict):
 # Input / output contracts (existing, lightly expanded)
 # -----------------------------
 class StructuredInput(TypedDict):
-    incident_type: str
-    env: Literal["PROD", "CANARY", "STAGING" ,"DEV"]
+    incident_type: INCIDENT_TYPE
+    env: ENVIRONMENT
     service_domain: str
-    datacenter: Literal["AWSE", "AWSW", "TDC" ,"SDC" ,"TPA"]
-    metric_name: list[str]
+    datacenter: Literal['AWSE', 'AWSW', 'AZUREE', 'AZUREW', 'GCE', 'GCW', 'BDC', 'ADC', 'CDC']
+    metric_names: list[str]
     app_name: str
     host: str|None
     instances: list[str] | None
@@ -290,7 +292,7 @@ class ModelOutput(TypedDict, total=False):
 
 class ProposalOutput(TypedDict):
     service: str
-    env: Literal["PROD", "CANARY", "STAGING" ,"DEV"]
+    env: ENVIRONMENT
     category: Category
     summary: str
     evidence: list[str]
@@ -302,7 +304,7 @@ class ApprovalRequest(TypedDict):
     request_id: str
     decision: DecisionSnapshot
     service: str
-    env: Literal["PROD", "CANARY", "STAGING" ,"DEV"]
+    env: ENVIRONMENT
     proposed_actions: list[str]
     evidence: list[str]
     approval_question: str
@@ -313,7 +315,7 @@ class InvestigationRequest(TypedDict):
     request_id: str
     decision: DecisionSnapshot
     service: str
-    env: Literal["PROD", "CANARY", "STAGING" ,"DEV"]
+    env: ENVIRONMENT
     suspected_issue: str
     trigger_codes: list[TriggerCode]
     evidence: list[str]
@@ -328,7 +330,7 @@ class SMEReviewRequest(TypedDict):
     request_id: str
     decision: DecisionSnapshot
     service: str
-    env: Literal["PROD", "CANARY", "STAGING" ,"DEV"]
+    env: ENVIRONMENT
     summary: str
     evidence: list[str]
     hypotheses: list[str]
@@ -357,7 +359,7 @@ class VerificationResult(TypedDict):
 
 class DiagnosticsInput(TypedDict):
     service: str
-    env: Literal["PROD", "NONPROD"]
+    env: ENVIRONMENT
     checks: list[Literal["CPU", "MEMORY", "LATENCY", "ERROR_RATE", "DEPENDENCIES"]]
 
 

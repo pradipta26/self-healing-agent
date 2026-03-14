@@ -1,5 +1,6 @@
 import re
 import os
+import string
 from typing import Any
 
 from self_healing_agent.agent.state import AgentState
@@ -58,6 +59,32 @@ def _is_system_metric(metric_names: list[str]) -> bool:
     return any(any(keyword in metric for keyword in keywords) for metric in lowered)
 
 
+def _parse_common_fields(text: str) -> dict[str, Any]:
+    warnings: list[str] = []
+    service_domain = _extract_between(text, "System:", ",")
+    if not service_domain: 
+        warnings.append("MISSING_SERVICE_DOMAIN")
+    datacenter = _extract_between(text, "DC:", ",")
+    if not datacenter and not datacenter.strip(): 
+        warnings.append("MISSING_DATACENTER")
+    else:
+        datacenter = datacenter.upper().replace("-", "").replace("_", "").strip()
+    metric_names = _extract_metrics(text)
+    if not metric_names:
+        warnings.append("MISSING_METRIC_NAME")
+    app_name = _extract_between(text, "Application:", ",").strip()
+    if not app_name:
+        app_name = _extract_between(text, "Application:").strip()
+    
+    env = os.getenv("SHA_ENV", "DEV").upper()
+    return (
+        env,
+        service_domain,
+        datacenter,
+        metric_names,
+        app_name,
+        warnings,
+    )
 def _extract_infra_app_name(text: str) -> str:
     app_segment = _extract_between(text, "Application:", " for host:").strip()
     if not app_segment:
@@ -194,15 +221,15 @@ def _parse_infra_host(text: str) -> dict[str, Any]:
         instance_hosts = [candidate]        
     return {
         'structured_input': {
-            "incident_type": "infra_host",
+            "incident_type": "Host Infrastructure",
             'env': env,  # Default to PROD - will be updated in the future based on additional parsing if needed
             "service_domain": service_domain,
             "datacenter": datacenter,
-            "metric_name": metric_names,
+            "metric_names": metric_names,
             "app_name": app_name,
-            "host": host,
+            "hosts": [host] if host else [],
             "instances": instances if instances else [],
-            "instance_host": instance_hosts,
+            "instance_hosts": instance_hosts,
             "reason": reason,
         },
         'warnings': warnings,
@@ -220,19 +247,19 @@ def _parse_service_instance(text: str) -> dict[str, Any]:
         warnings.append("MISSING_REASON")
 
     instances = _extract_between(text, "Instance:")
-    instance_host = _extract_derived_host(instances)
+    instance_hosts = _extract_derived_host(instances)
 
     return {
         'structured_input': {
-            'incident_type': "service_instance",
+            'incident_type': "Service Instance",
             'env': env, 
             'service_domain': service_domain,
             'datacenter': datacenter,
-            'metric_name': metric_names,
+            'metric_names': metric_names,
             'app_name': app_name,
-            'host': None,
+            'host': [],
             'instances': [instances] if instances else [],
-            'instance_host': [instance_host] if instance_host else [],
+            'instance_hosts': [instance_hosts] if instance_hosts else [],
             'reason': reason,
         },
         'warnings': warnings,
@@ -243,7 +270,7 @@ def _parse_service_instance(text: str) -> dict[str, Any]:
 
 
 def _parse_system_instance(text: str) -> dict[str, Any]:
-    env, service_domain, datacenter, metric_names, app_name, warnings = _parse_common_fieleds(text)
+    env, service_domain, datacenter, metric_names, app_name, warnings = _parse_common_fields(text)
     reason = _extract_between(text, "Reason:", "System:")
     reason = reason.strip(" ,")
     if not reason:
@@ -257,15 +284,15 @@ def _parse_system_instance(text: str) -> dict[str, Any]:
 
     return {
         'structured_input': {
-            'incident_type': "system_instance",
+            'incident_type': "System Instance",
             'env': env,  # Default to PROD - will be updated in the future based on additional parsing if needed
             "service_domain": service_domain,
             "datacenter": datacenter,
-            "metric_name": metric_names,
+            "metric_names": metric_names,
             "app_name": app_name,
-            "host": host,
+            "hosts": [host] if host else [],
             "instances": [],
-            "instance_host": [],
+            "instance_hosts": [],
             "reason": reason,
         },
         'warnings': warnings,
@@ -284,15 +311,15 @@ def _parse_service_dc(text: str) -> dict[str, Any]:
     
     return {
         'structured_input': {
-        "incident_type": "service_dc",
+        "incident_type": "Service DC",
         'env': env,
         "service_domain": service_domain,
         "datacenter": datacenter,
-        "metric_name": metric_names,
+        "metric_names": metric_names,
         "app_name": app_name,
-        "host": None,
+        "hosts": [],
         "instances": [],
-        "instance_host": [],
+        "instance_hosts": [],
         "reason": reason,
         },
         'warnings': warnings,
@@ -311,15 +338,15 @@ def _parse_system_dc(text: str) -> dict[str, Any]:
     
     return {
         'structured_input': {
-            "incident_type": "system_dc",
+            "incident_type": "System DC",
             'env': env,
             "service_domain": service_domain,
             "datacenter": datacenter,
-            "metric_name": metric_names,
+            "metric_names": metric_names,
             "app_name": app_name,
-            "host": None,
+            "hosts": [],
             "instances": [],
-            "instance_host": [],
+            "instance_hosts": [],
             "reason": reason,
         },
         'warnings': warnings,
@@ -331,6 +358,9 @@ def _parse_system_dc(text: str) -> dict[str, Any]:
 
 def parse_raw_incident_details(state: AgentState) -> dict[str, Any]:
     text = _normalize_text(state['incident_raw'])
+    text = text.strip()
+    if text and text[0] in string.punctuation:
+        text = text[1:].strip()
     if text:
         if text.startswith("System:"):
             return _parse_infra_host(text)
@@ -355,9 +385,9 @@ def parse_raw_incident_details(state: AgentState) -> dict[str, Any]:
             "env": None,
             "service_domain": None,
             "datacenter": None,
-            "metric_name": [],
+            "metric_names": [],
             "app_name": None,
-            "host": None,
+            "hosts": None,
             "instances": [],
             "reason": None,
         },

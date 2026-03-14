@@ -101,7 +101,6 @@ def validate_input(state: AgentState) -> dict[str, Any]:
     warnings = list(state.get("warnings", []))
     errors: list[str] = []
     trigger_codes: list[str] = []
-    decision_id = str(uuid.uuid4())
     structured_input = state.get("structured_input")
     if not isinstance(structured_input, dict):
         errors.append("structured_input must be an object")
@@ -111,7 +110,7 @@ def validate_input(state: AgentState) -> dict[str, Any]:
             "error_flag": True,
             "error_message": "Validation failed:\n- " + "\n- ".join(errors),
             "trace": state.get("trace", []) + ["validate_input:not_ok"],
-            "decision_id": decision_id,
+            "decision_id": decision_id, # Set state decision_id
             "decision": _create_decision_snapshot(
                 decision_id=decision_id,
                 trigger_codes=["INPUT_PARSE_FAILED"]

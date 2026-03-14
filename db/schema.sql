@@ -20,29 +20,24 @@ CREATE TABLE IF NOT EXISTS prdb_incident_parent (
 
     -- Canonical parsed fields
     incident_type TEXT NOT NULL,
-    env TEXT NOT NULL,
+    env TEXT NOT NULL DEFAULT 'PROD',
     service_domain TEXT NOT NULL,
     datacenter TEXT NOT NULL,
     app_name TEXT NOT NULL,
-    host TEXT,
+    hosts TEXT[],
     reason TEXT NOT NULL,
 
     -- Arrays from canonical parsing
-    metric_names TEXT[] NOT NULL DEFAULT '{}',
+    metric_names TEXT[] NOT NULL,
     instances TEXT[] NOT NULL DEFAULT '{}',
     instance_hosts TEXT[] NOT NULL DEFAULT '{}',
     warnings TEXT[] NOT NULL DEFAULT '{}',
 
     -- Raw source payload
     raw_incident_text TEXT NOT NULL,
-    normalized_incident_text TEXT,
-
-    -- Optional remediation / PRDB-style enrichment
-    issue_desc TEXT,
-    root_cause TEXT,
-    mitigation TEXT,
-    fortification TEXT,
-    resolution_summary TEXT,
+    normalized_incident_reason TEXT,
+    -- Resolution summary after parsing and enrichment, used for retrieval and explainability
+    resolution TEXT,
 
     -- Metadata
     payload_hash TEXT,
@@ -63,9 +58,6 @@ CREATE INDEX IF NOT EXISTS idx_prdb_parent_datacenter
 CREATE INDEX IF NOT EXISTS idx_prdb_parent_incident_type
     ON prdb_incident_parent (incident_type);
 
-CREATE INDEX IF NOT EXISTS idx_prdb_parent_env
-    ON prdb_incident_parent (env);
-
 CREATE INDEX IF NOT EXISTS idx_prdb_parent_app_name
     ON prdb_incident_parent (app_name);
 
@@ -79,37 +71,38 @@ CREATE INDEX IF NOT EXISTS idx_prdb_parent_inserted_at
 -- ============================================================
 CREATE TABLE IF NOT EXISTS prdb_incident_chunk (
     id BIGSERIAL PRIMARY KEY,
-    parent_id BIGINT NOT NULL REFERENCES prdb_incident_parent(id) ON DELETE CASCADE,
 
-    -- Chunk identity
+    parent_id BIGINT NOT NULL
+        REFERENCES prdb_incident_parent(id)
+        ON DELETE CASCADE,
+
+    -- Currently always 1 or 2
     chunk_index INT NOT NULL,
+
+    -- problem / resolution
     chunk_type TEXT NOT NULL,
 
-    -- Retrieval payload
+    -- text used for semantic search
     chunk_text TEXT NOT NULL,
+
+    -- normalized text used to generate embedding
     chunk_text_normalized TEXT,
 
-    -- Metadata duplicated intentionally for fast filtering
-    source_incident_id TEXT,
-    incident_type TEXT NOT NULL,
-    env TEXT NOT NULL,
+    -- metadata used for filtering
     service_domain TEXT NOT NULL,
+    metric_name TEXT NOT NULL,
     datacenter TEXT NOT NULL,
+    incident_type TEXT NOT NULL,
     app_name TEXT NOT NULL,
-    host TEXT,
-    metric_names TEXT[] NOT NULL DEFAULT '{}',
 
-    -- Embedding column (adjust dimension to the model you choose)
+    -- vector embedding
     embedding VECTOR(1536),
 
-    -- Optional sparse / lexical support placeholders
-    lexical_document TEXT,
-
-    -- Audit metadata
     embedding_model TEXT,
-    inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT uq_prdb_incident_chunk_parent_chunk UNIQUE (parent_id, chunk_index, chunk_type)
+    inserted_at TIMESTAMPTZ DEFAULT NOW(),
+
+    CONSTRAINT uq_prdb_chunk UNIQUE(parent_id, chunk_index, chunk_type)
 );
 
 CREATE INDEX IF NOT EXISTS idx_prdb_chunk_parent_id
@@ -118,23 +111,25 @@ CREATE INDEX IF NOT EXISTS idx_prdb_chunk_parent_id
 CREATE INDEX IF NOT EXISTS idx_prdb_chunk_service_domain
     ON prdb_incident_chunk (service_domain);
 
+CREATE INDEX IF NOT EXISTS idx_prdb_chunk_metric_name
+    ON prdb_incident_chunk (metric_name);
+
 CREATE INDEX IF NOT EXISTS idx_prdb_chunk_datacenter
     ON prdb_incident_chunk (datacenter);
 
 CREATE INDEX IF NOT EXISTS idx_prdb_chunk_incident_type
     ON prdb_incident_chunk (incident_type);
 
-CREATE INDEX IF NOT EXISTS idx_prdb_chunk_env
-    ON prdb_incident_chunk (env);
-
 CREATE INDEX IF NOT EXISTS idx_prdb_chunk_app_name
     ON prdb_incident_chunk (app_name);
 
--- Approximate nearest-neighbor index for cosine similarity
--- Note: create after enough rows exist for better performance.
+CREATE INDEX IF NOT EXISTS idx_prdb_chunk_service_metric
+    ON prdb_incident_chunk (service_domain, metric_name);
+
+-- vector index
 CREATE INDEX IF NOT EXISTS idx_prdb_chunk_embedding_cosine
-    ON prdb_incident_chunk
-    USING hnsw (embedding vector_cosine_ops);
+ON prdb_incident_chunk
+USING hnsw (embedding vector_cosine_ops);
 
 
 -- ============================================================
@@ -166,10 +161,11 @@ CREATE TABLE IF NOT EXISTS decision_log (
 
     -- Canonical context at decision time
     incident_type TEXT,
-    env TEXT,
     service_domain TEXT,
+    metric_name TEXT,
     datacenter TEXT,
     app_name TEXT,
+    host TEXT,
     reason TEXT,
 
     -- Explainability / audit
@@ -216,6 +212,9 @@ CREATE INDEX IF NOT EXISTS idx_decision_log_escalation_type
 CREATE INDEX IF NOT EXISTS idx_decision_log_service_domain
     ON decision_log (service_domain);
 
+CREATE INDEX IF NOT EXISTS idx_decision_log_metric_name
+    ON decision_log (metric_name);
+
 CREATE INDEX IF NOT EXISTS idx_decision_log_datacenter
     ON decision_log (datacenter);
 
@@ -235,18 +234,15 @@ CREATE INDEX IF NOT EXISTS idx_decision_log_policy_checks_gin
 CREATE OR REPLACE VIEW vw_prdb_chunk_with_parent AS
 SELECT
     c.id AS chunk_id,
-    c.parent_id,
-    p.source_incident_id,
-    p.source_system,
-    p.incident_type AS parent_incident_type,
-    p.env AS parent_env,
-    p.service_domain AS parent_service_domain,
-    p.datacenter AS parent_datacenter,
+    c.parent_id as parent_id,
     p.app_name AS parent_app_name,
-    p.reason AS parent_reason,
-    p.root_cause,
-    p.mitigation,
-    p.fortification,
+    p.service_domain AS parent_service_domain,
+    p.metric_names AS parent_metric_name,
+    p.datacenter AS parent_datacenter,
+    p.host AS parent_host,
+    p.incident_type AS parent_incident_type,
+    p.reason AS parent_incident_reason,
+    p.resolution_summary AS parent_resolution_summary,
     c.chunk_index,
     c.chunk_type,
     c.chunk_text,
